@@ -1,1 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LAB 4 -  Product Inventory</title>
+</head>
+<body>
+
+<h2>Product Inventory</h2>
+
+<h3>Add Item</h3>
+<form id = "form">
+    <label>Code (Unique): <input id="code" required></label><br>
+    <label>Name: <input id="name" required></label><br>
+    <label>Price (₱): <input id="price" type="number" min="0" step="0.01" required></label><br>
+    <label>Stock (Qty): <input id="stock" type="number" min="0" step="1" required></label><br>
+    <button type="submit">Add</button>
+    <button type="button" id="btnDelete">Delete by Code</button>
+</form>
+
+<h3>Controls</h3>
+
+<label>Search: <input id="search"></label>
+<label>Stock Threshold(&lt;): <input id="threshold" type="number" value="5"></label>
+<button id = "btnFilter">Filter</button>
+<button id = "btnClear">Clean Filter</button>
+<button id = "btnSortName">Sort by Name</button>
+<button id = "btnSortPrice">Sort by Price</button>
+
+<h3>Inventory</h3>
+<table border = "1" cellspacing = "0" cellpadding = "5">
+    <thead>
+        <tr>
+            <th>Code</th>
+            <th>Name</th>
+            <th>Price</th>
+            <th>Stock</th>
+        </tr>
+    </thead>
+    <tbody id = "tbody"></tbody>
+</table>
+<p id="empty" style="display:none;">No items match.</p>
+
+<h3>Summary</h3>
+<p id="summary">No actions yet.</p>
+
+<h3>Cart</h3>
+<label>Code: <input id="cartCode"></label>
+<label>Quantity: <input id="cartQty" type="number" min="1" value="1"></label>
+<button id="btnAddCart">Add to Cart</button>
+<button id="btnCheckout">Checkout</button>
+<button id="btnClearCart">Clear Cart</button>
+<p id="cartStatus">Cart is Empty.</p>
+
+<script>
+    const items = [
+        {code: 'ITEM-001', name: 'Organic Barley', price:1299.00, stock:8},
+        {code: 'ITEM-002', name: 'Choco Barley', price:350.00, stock:0},
+        {code: 'ITEM-003', name: 'Grape Juice 1L', price:169.96, stock:24}
+    ];
+
+    const cart = {
+        items:[],
+        add(itemObj, qty)
+        {
+            qty = Number(qty);
+            if(!itemObj) throw new Error('Item not found.');
+            if(qty <= 0) throw new Error('Quantity must be at least 1.');
+            const existing = this.items.find ( i => i.code === itemObj.code);
+            const already = existing ? existing.qty : 0;
+            if (qty + already > itemObj.stock)
+        {
+            throw new Error(`Insufficient stock. Requested ${qty}, available ${itemObj.stock - already} more.`);
+        }
+        if(existing){existing.qty += qty;}
+        else {this.items.push({code:itemObj.code, name:itemObj.name, qty, price:itemObj.price});}
+        return `${qty} x ${itemObj.name} added.`;
+        },
+        checkout()
+        {
+            if(this.items.length === 0 ) return 'Cart is empty.';
+            let subtotal = 0; const lines = [];
+            for(const it of this.items)
+            {
+                const line = it.qty * it.price; subtotal += line;
+                lines.push(`${it.qty} x ${it.name} = ₱${line.toFixed(2)}`);
+            }
+            const discount = subtotal > 5000 ? subtotal * 0.05 : 0;
+            const afterDiscount = subtotal - discount;
+            const vat = afterDiscount * 0.12;
+            const total = afterDiscount + vat;
+            const report = `\nCHECKOUT REPORT\n=============\n${lines.join('\n')}\n---------------\nSubtotal: ₱${subtotal.toFixed(2)}\nDiscount: ₱${discount.toFixed(2)}\nVAT (12%): ₱${vat.toFixed(2)}`;
+            return report;
+        },
+        clear(){this.items = [];}
+    };
+
+    let filterFn = null, searchKw = '', sortBy = null, sortAsc = true;
+
+    const $       = id => document.getElementById(id);
+    const tbody   = $('tbody');
+    const empty   = $('empty');
+    const summary = $('summary');
+
+    const peso =     n => `₱${Number(n).toFixed(2)}`;
+    const log  = (t,m) => console.log(`[${t}]`, m);
+
+    function render()
+    {
+        let view = [...items];
+        if(filterFn) view = view.filter(filterFn);
+        if(searchKw)
+            {
+                const kw = searchKw.toLowerCase();
+                view = view.filter(i => i.code.toLowerCase().includes(kw) || i.name.toLowerCase().includes(kw));
+            }
+            if(sortBy)
+            {
+                view.sort((a,b) =>
+            {
+                const v = sortBy === 'name' ? a.name.localeCompare(b.name) : (a.price - b.price);
+                return sortAsc ? v : -v;
+            });
+            }
+        tbody.innerHTML = '';
+        for (const it of view)
+        {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td>${it.code}</td><td>${it.name}</td><td>${peso(it.price)}</td><td>${it.stock}</td>`;
+            tbody.appendChild(tr);
+        }
+        empty.style.display = view.length ? 'none' : 'block';
+
+        const totalItems = items.length;
+        const outOfStock = items.filter(i=>i.stock===0).length;
+        const totalStock = items.reduce((a,b)=>a+b.stock,0);
+        const value      = items.reduce((a,b)=>a+b.price*b.stock,0);
+        summary.textContent = `Items: ${totalItems} | Out of Stock: ${outOfStock} | Stock: ${totalStock} | Value: ${peso(value)}`;
+    }
+
+    //Inventory Actions
+
+    $('form').addEventListener('submit', (e) =>
+    {e.preventDefault();
+        const code  = $('code').value.trim();
+        const name  = $('name').value.trim();
+        const price = Number($('price').value);
+        const stock = Number($('stock').value);
+        if(!code || !name || isNaN(price) || isNaN(stock)) return;
+        const exists = items.find(i => i.code.toLowerCase() === code.toLowerCase());
+        if(exists) { alert('Code exists. Delete first.'); return; }
+        items.push({code, name, price, stock });
+        log ('ADD', `Added ${code}`);
+        e.target.reset();
+        render();
+    });
+
+    $('btnDelete').addEventListener('click', () => 
+    {
+        const code = prompt('Enter the item code to delete: ');
+        if(!code) return;
+        const idx = items.findIndex(i => i.code.toLowerCase() === code.toLowerCase());
+        if(idx === -1)
+        {
+            alert('Code not found');
+            return;
+        }
+        const removed = items.splice(idx, 1)[0];
+        log('DELETE', `Removed ${removed.code}`);
+        render();
+    });
+
+    //Controls
+    $('btnFilter').addEventListener('click', ()=>
+    {
+        const t = Number($('threshold').value);
+        filterFn = it => it.stock < t;
+        log('Filter', `stock < ${t}`);
+        render();
+    });
+    $('btnClear').addEventListener('click', () =>
+    {
+        filterFn=null; searchKw=''; $('search').value='';
+        log('FILTER','cleared'); render();
+    });
+
+    $('btnSortName').addEventListener('click', ()=>
+    {
+        sortBy='name'; sortAsc=!sortAsc; log('SORT', `by name ${sortAsc?'ASC':'DESC'}`); render();
+    });
+
+    $('btnSortPrice').addEventListener('click', ()=>{
+      sortBy='price'; sortAsc=!sortAsc; log('SORT', `by price ${sortAsc?'ASC':'DESC'}`); render();
+    });
+
+    $('search').addEventListener('input', e=>{ searchKw=e.target.value; render(); 
+    });
+
+    //Cart Events
+
+    const cartCode    = $('cartCode');
+    const cartQty     = $('cartQty');
+    const cartStatus  = $('cartStatus');
+
+    $('btnAddCart').addEventListener('click', ()=>
+    {
+        const it = items.find( i => i.code.toLowerCase() === cartCode.value.trim().toLowerCase());
+        try
+        {
+            const msg = cart.add(it, Number(cartQty.value||1));
+            cartStatus.textContent = msg; log('CART', msg);
+        }
+        catch(err)
+        {
+            cartStatus.textContent = err.message; log('CART', 'ERROR: '+err.message);
+        }
+    });
+
+    $('btnCheckout').addEventListener('click', ()=>
+        {
+            const report = cart.checkout();
+            if(report.startsWith('Cart is empty')){alert(report); return;}
+            for(const c of cart.items)
+        {
+            const it = items.find(i => i.code === c.code);
+            if(it) it.stock -=c.qty;
+        }
+        console.log(report); alert(report);
+      cart.clear(); cartStatus.textContent='Cart is empty.'; render();
+    });
+
+    $('btnClearCart').addEventListener('click', ()=>{ cart.clear(); cartStatus.textContent='Cart is empty.'; });
+
+    render();
+</script>
+</body>
+
+</html>
+
 
